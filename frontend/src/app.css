@@ -639,7 +639,7 @@ textarea:focus {
 
 .data-table {
   width: 100%;
-  min-width: 70rem;
+  min-width: 82rem;
   border-collapse: collapse;
   font-size: 0.84rem;
 }
@@ -1184,4 +1184,149 @@ textarea:focus {
 .order-buttons button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.state-待刻 {
+  color: #655647;
+  background: #e6dac8;
+}
+
+.state-在刻 {
+  color: #79540e;
+  background: #f3dfad;
+}
+
+.state-已刻成 {
+  color: #fff;
+  background: var(--ink-soft);
+}
+
+.state-待修版 {
+  color: #fff;
+  background: var(--cinnabar);
+}
+
+.state-已修版 {
+  color: #fff;
+  background: var(--jade);
+}
+
+.quota-meter {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 11.5rem;
+}
+
+.quota-meter > span {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+
+.quota-meter b {
+  font-size: 0.92rem;
+}
+
+.quota-meter .progress-track {
+  height: 0.38rem;
+}
+
+.quota-meter small {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+}
+
+.quota-meter small.block-low b {
+  color: var(--cinnabar);
+}
+
+.repair-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(169, 52, 39, 0.3);
+  border-radius: var(--radius-sm);
+  background: rgba(169, 52, 39, 0.05);
+}
+
+.repair-form label {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.repair-form label > span {
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.repair-form input,
+.repair-form textarea {
+  min-height: 2.2rem;
+}
+
+.repair-tagline {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--cinnabar-dark);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.repair-history {
+  margin: 0.55rem 0 0;
+  padding-left: 1rem;
+  color: var(--ink-muted);
+  font-size: 0.69rem;
+  line-height: 1.55;
+}
+
+.quota-warning {
+  margin: 0.9rem 0;
+  border: 1px solid rgba(169, 52, 39, 0.35);
+  border-left: 3px solid var(--cinnabar);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.9rem;
+  color: var(--cinnabar-dark);
+  background: rgba(169, 52, 39, 0.06);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.quota-warning ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.quota-warning b {
+  font-size: 0.95rem;
+}
+
+.quota-line {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+}
+
+.quota-line.over,
+.short-quota .quota-line {
+  color: var(--cinnabar);
+  font-weight: 800;
+}
+
+.quota-line em {
+  margin-left: 0.35rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--cinnabar);
+  font-style: normal;
+  font-size: 0.68rem;
+}
+
+.page-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0;
 }

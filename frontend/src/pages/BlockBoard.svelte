@@ -12,9 +12,11 @@
   import { useBlockOrder } from '../hooks/useBlockOrder'
   import { useCarverLoad } from '../hooks/useCarverLoad'
   import { validateColorSequence } from '../utils/seq'
+  import { completeRepair, printLimit, remainingPrints } from '../utils/print'
   import { db } from '../utils/db'
   import type { Block } from '../types/block'
   import type { ProcessStage } from '../types/node'
+  import type { RepairRecord } from '../types/repair'
 
   const draftId = $derived($params?.id ?? '')
   const {
@@ -27,6 +29,10 @@
 
   let sequenceDraft = $state<Record<string, number>>({})
   let defectDraft = $state<Record<string, string>>({})
+  let repairDraft = $state<
+    Record<string, { repairArea: number; durationMin: number; repairedBy: string; note: string }>
+  >({})
+  let repairs = $state<RepairRecord[]>([])
   let selectedCarverId = $state('')
   let notice = $state('')
   let lastSync = $state('刚刚')
@@ -34,8 +40,26 @@
   const draft = $derived($draftStore.find((item) => item.id === draftId) ?? null)
 
   onMount(() => {
-    void Promise.all([draftStore.load(), blockStore.load(), carverStore.load()])
+    void Promise.all([draftStore.load(), blockStore.load(), carverStore.load(), refreshRepairs()])
   })
+
+  async function refreshRepairs(): Promise<void> {
+    const records = await db.repairs.toArray()
+    records.sort((a, b) => b.repairedAt.localeCompare(a.repairedAt))
+    repairs = records
+  }
+
+  function repairHistory(blockId: string): RepairRecord[] {
+    return repairs.filter((record) => record.blockId === blockId)
+  }
+
+  function blockLimit(block: Block): number {
+    return printLimit(block.woodType)
+  }
+
+  function blockRemaining(block: Block): number {
+    return remainingPrints(block)
+  }
 
   $effect(() => {
     setBlockDraft(draftId)
@@ -45,6 +69,14 @@
     for (const block of $orderedBlocks) {
       if (sequenceDraft[block.id] === undefined) sequenceDraft[block.id] = block.colorNo
       if (defectDraft[block.id] === undefined) defectDraft[block.id] = block.defectNote
+      if (repairDraft[block.id] === undefined) {
+        repairDraft[block.id] = {
+          repairArea: 0,
+          durationMin: 60,
+          repairedBy: block.carvedBy || '秦木生',
+          note: '',
+        }
+      }
     }
   })
 
@@ -59,6 +91,29 @@
   function blockStateStage(state: Block['state']): number {
     if (state === '待刻' || state === '在刻') return 3
     return 4
+  }
+
+  async function submitRepair(block: Block): Promise<void> {
+    const form = repairDraft[block.id]
+    if (!form || form.repairArea <= 0) {
+      notice = `请先填写${block.blockName}的修版量（平方厘米）。`
+      return
+    }
+    if (form.durationMin < 0) {
+      notice = `请填写${block.blockName}正确的修版用时。`
+      return
+    }
+
+    await completeRepair({
+      block,
+      repairArea: Number(form.repairArea),
+      durationMin: Number(form.durationMin),
+      repairedBy: form.repairedBy.trim() || '当班修版工',
+      note: form.note.trim(),
+    })
+    await Promise.all([blockStore.load(), refreshRepairs()])
+    notice = `${block.blockName}修整完成：旧周期 ${block.printCount} 印已留档，印数归零从头计印。`
+    lastSync = `${block.blockName}已完成停版修整`
   }
 
   function occupiedNumbers(exceptId: string): number[] {
@@ -77,7 +132,9 @@
     await blockStore.update(block.id, { state: '已刻成' })
     await carverStore.releaseBlock(block.id)
     const currentBlocks = get(blockStore).filter((item) => item.draftId === draftId)
-    const allCarved = currentBlocks.every((item) => item.state === '已刻成' || item.state === '已修版')
+    const allCarved = currentBlocks.every(
+      (item) => item.state === '已刻成' || item.state === '待修版' || item.state === '已修版',
+    )
     await draftStore.update(draftId, { status: allCarved ? '可印' : '刻版中' })
 
     const existing = await db.nodes.where('blockId').equals(block.id).toArray()
@@ -171,7 +228,7 @@
     <div><span>版片总数</span><strong>{$orderedBlocks.length}</strong></div>
     <div><span>刻成率</span><strong>{$blockCarvedRate}%</strong></div>
     <div><span>在刻版片</span><strong>{$orderedBlocks.filter((block) => block.state === '在刻').length}</strong></div>
-    <div><span>需修版片</span><strong>{$orderedBlocks.filter((block) => block.defectNote).length}</strong></div>
+    <div><span>待修版片</span><strong data-testid="count-pending-repair">{$orderedBlocks.filter((block) => block.state === '待修版').length}</strong></div>
   </section>
 
   <div class="workbench-grid">
@@ -194,6 +251,7 @@
                 <th>色序</th>
                 <th>版片</th>
                 <th>木料 / 版厚</th>
+                <th>印次 / 停版余量</th>
                 <th>刻工指派</th>
                 <th>状态</th>
                 <th>崩口与修补</th>
@@ -225,6 +283,63 @@
                     <small>{block.thicknessMm} mm</small>
                   </td>
                   <td>
+                    <div class="quota-meter" data-testid={`quota-${block.id}`}>
+                      <span>已印 <b data-testid={`printed-${block.id}`}>{block.printCount}</b> / {blockLimit(block)}</span>
+                      <div class="progress-track"><i style={`width: ${Math.min(100, (block.printCount / blockLimit(block)) * 100)}%`}></i></div>
+                      <small class:block-low={blockRemaining(block) <= 500}>
+                        剩余 <b>{blockRemaining(block)}</b> 印 · 已修 <b data-testid={`repair-count-${block.id}`}>{block.repairCount}</b> 次
+                      </small>
+                    </div>
+                    {#if block.state === '待修版'}
+                      <div class="repair-form" data-testid={`repair-form-${block.id}`}>
+                        <label>
+                          <span>修版量（cm²）</span>
+                          <input
+                            data-testid={`field-repairArea-${block.id}`}
+                            type="number"
+                            min="1"
+                            bind:value={repairDraft[block.id].repairArea}
+                          />
+                        </label>
+                        <label>
+                          <span>用时（分钟）</span>
+                          <input
+                            data-testid={`field-repairDuration-${block.id}`}
+                            type="number"
+                            min="0"
+                            bind:value={repairDraft[block.id].durationMin}
+                          />
+                        </label>
+                        <label>
+                          <span>修版人</span>
+                          <input data-testid={`field-repairBy-${block.id}`} bind:value={repairDraft[block.id].repairedBy} />
+                        </label>
+                        <label class="repair-note">
+                          <span>修补说明</span>
+                          <textarea
+                            rows="2"
+                            data-testid={`field-repairNote-${block.id}`}
+                            bind:value={repairDraft[block.id].note}
+                            placeholder="磨钝、崩线处理与试印结果"
+                          ></textarea>
+                        </label>
+                        <button class="mini-button strong" data-testid={`submit-repair-${block.id}`} type="button" onclick={() => submitRepair(block)}>
+                          修整完成，从头计印
+                        </button>
+                      </div>
+                    {/if}
+                    {#if repairHistory(block.id).length > 0}
+                      <ul class="repair-history" data-testid={`repair-history-${block.id}`}>
+                        {#each repairHistory(block.id) as record}
+                          <li>
+                            {record.repairedAt.replace('T', ' ')} · {record.repairedBy} · 旧用量 {record.retiredPrintCount} 印 ·
+                            修 {record.repairArea} cm² / {record.durationMin} 分钟
+                          </li>
+                        {/each}
+                      </ul>
+                    {/if}
+                  </td>
+                  <td>
                     <select
                       data-testid={`field-carvedBy-${block.id}`}
                       value={block.carvedBy}
@@ -238,7 +353,9 @@
                   </td>
                   <td>
                     <span class="tag state-{block.state}">{block.state}</span>
-                    {#if block.state !== '已刻成' && block.state !== '已修版'}
+                    {#if block.state === '待修版'}
+                      <small class="repair-tagline">已到停版额度，填修版量后归零复印</small>
+                    {:else if block.state !== '已刻成' && block.state !== '已修版'}
                       <button class="mini-button strong" type="button" onclick={() => markCarved(block)}>标刻成</button>
                     {/if}
                   </td>
@@ -253,10 +370,16 @@
                   </td>
                 </tr>
                 <tr class="stage-row">
-                  <td colspan="6">
+                  <td colspan="7">
                     <StageRail
                       activeIndex={blockStateStage(block.state)}
-                      completedCount={block.state === '已刻成' || block.state === '已修版' ? 5 : block.state === '在刻' ? 3 : 1}
+                      completedCount={
+                        block.state === '已刻成' || block.state === '待修版' || block.state === '已修版'
+                          ? 5
+                          : block.state === '在刻'
+                            ? 3
+                            : 1
+                      }
                       compact={true}
                       onselect={block.id === $orderedBlocks[0]?.id ? returnToStage : undefined}
                     />

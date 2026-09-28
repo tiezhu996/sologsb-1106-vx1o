@@ -4,6 +4,7 @@
   import EmptyBox from '../components/common/EmptyBox.svelte'
   import StageRail from '../components/common/StageRail.svelte'
   import { blockStore } from '../stores/blockStore'
+  import { printLimit, remainingPrints } from '../utils/print'
   import { db } from '../utils/db'
   import type { ProcessNode, ProcessStage } from '../types/node'
 
@@ -124,7 +125,10 @@
     <div>
       <p class="eyebrow">单块版片工序</p>
       <h1>{block.blockName}工序节点时间线</h1>
-      <p>{block.woodType} · 版厚 {block.thicknessMm} mm · 当前 {block.state}</p>
+      <p>
+        {block.woodType} · 版厚 {block.thicknessMm} mm · 当前 {block.state} ·
+        本周期已印 {block.printCount} / {printLimit(block.woodType)}，剩 {remainingPrints(block)} 印 · 修版 {block.repairCount} 次
+      </p>
     </div>
     <a class="button ghost" use:link href={`/drafts/${block.draftId}/blocks`}>返回版片编排台</a>
   </div>

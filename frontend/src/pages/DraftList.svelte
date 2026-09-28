@@ -93,6 +93,8 @@
           carvedBy: '',
           state: '待刻',
           defectNote: '',
+          printCount: 0,
+          repairCount: 0,
         })
       }
     })
