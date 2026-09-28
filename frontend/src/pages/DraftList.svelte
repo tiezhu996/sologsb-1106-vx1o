@@ -92,6 +92,7 @@
           thicknessMm: index === 0 ? 18 : 20,
           carvedBy: '',
           state: '待刻',
+          printCount: 0,
           defectNote: '',
         })
       }

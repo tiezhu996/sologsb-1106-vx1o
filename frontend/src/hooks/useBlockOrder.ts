@@ -12,7 +12,7 @@ export function useBlockOrder(draftId: string | null) {
 
   const carvedRate = derived(blocks, ($blocks) => {
     if ($blocks.length === 0) return 0
-    const carved = $blocks.filter((block) => block.state === '已刻成' || block.state === '已修版').length
+    const carved = $blocks.filter((block) => block.state === '已刻成' || block.state === '已修版' || block.state === '待修版').length
     return Math.round((carved / $blocks.length) * 100)
   })
 

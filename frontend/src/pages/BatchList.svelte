@@ -4,9 +4,11 @@
   import { draftStore } from '../stores/draftStore'
   import { blockStore } from '../stores/blockStore'
   import { buildDeviationNote } from '../utils/seq'
+  import { printQuota, reachesQuota, remainingPrints, wouldExceedQuota } from '../utils/print'
   import { downloadJson } from '../utils/export'
   import { db } from '../utils/db'
   import type { PrintBatch } from '../types/batch'
+  import type { Block } from '../types/block'
 
   let batches = $state<PrintBatch[]>([])
   let showForm = $state(false)
@@ -62,6 +64,25 @@
       return
     }
 
+    // 同一画稿里批次号不能重记
+    const duplicate = batches.some(
+      (batch) => batch.draftId === draftId && batch.batchNo.trim() === batchNo.trim(),
+    )
+    if (duplicate) {
+      formMessage = `该画稿已登记过批次号「${batchNo.trim()}」，批次号不能重记，请改号后再存。`
+      return
+    }
+
+    // 本批印数要累加到该画稿各版片；哪块超过额度，这批就不保存
+    const exceeded = selectedBlocks.filter((block) => wouldExceedQuota(block, Number(qty)))
+    if (exceeded.length > 0) {
+      const detail = exceeded
+        .map((block) => `${block.blockName}（${block.woodType}，额度 ${printQuota(block.woodType)}）还剩 ${remainingPrints(block)} 印可印`)
+        .join('；')
+      formMessage = `本批 ${Number(qty)} 印会让 ${exceeded.length} 块版片超过停版额度，整批未保存：${detail}。`
+      return
+    }
+
     const deviationText = buildDeviationNote(
       selectedBlocks.map((block) => ({
         blockName: block.blockName,
@@ -69,19 +90,29 @@
       })),
     )
 
-    await db.batches.add({
-      id: `batch-${crypto.randomUUID()}`,
-      draftId,
-      batchNo: batchNo.trim(),
-      printedAt,
-      paperBatch: paperBatch.trim(),
-      inkNote: inkNote.trim() || '颜料与胶量待续记',
-      qty: Number(qty),
-      pieceCount: Number(pieceCount),
-      qcNote: qcNote.trim() ? `${qcNote.trim()}；${deviationText}` : deviationText,
+    await db.transaction('rw', db.batches, db.blocks, async () => {
+      await db.batches.add({
+        id: `batch-${crypto.randomUUID()}`,
+        draftId,
+        batchNo: batchNo.trim(),
+        printedAt,
+        paperBatch: paperBatch.trim(),
+        inkNote: inkNote.trim() || '颜料与胶量待续记',
+        qty: Number(qty),
+        pieceCount: Number(pieceCount),
+        qcNote: qcNote.trim() ? `${qcNote.trim()}；${deviationText}` : deviationText,
+      })
+      for (const block of selectedBlocks) {
+        const changes: Partial<Block> = { printCount: block.printCount + Number(qty) }
+        // 到线的可印版片转为待修版
+        if (reachesQuota(block, Number(qty)) && (block.state === '已刻成' || block.state === '已修版')) {
+          changes.state = '待修版'
+        }
+        await db.blocks.update(block.id, changes)
+      }
     })
 
-    await refreshBatches()
+    await Promise.all([refreshBatches(), blockStore.load()])
     showForm = false
     batchNo = ''
     paperBatch = ''
@@ -94,13 +125,14 @@
   }
 
   async function exportArchive(): Promise<void> {
-    const [drafts, blocks, carvers, nodes] = await Promise.all([
+    const [drafts, blocks, carvers, nodes, repairs] = await Promise.all([
       db.drafts.toArray(),
       db.blocks.toArray(),
       db.carvers.toArray(),
       db.nodes.toArray(),
+      db.repairs.toArray(),
     ])
-    downloadJson('木版年画工序档案.json', { exportedAt: new Date().toISOString(), drafts, blocks, batches, carvers, nodes })
+    downloadJson('木版年画工序档案.json', { exportedAt: new Date().toISOString(), drafts, blocks, batches, carvers, nodes, repairs })
   }
 </script>
 
@@ -176,20 +208,26 @@
         <div class="section-title-row">
           <div>
             <span class="section-kicker">逐版检查</span>
-            <h3>{selectedDraft.title}套色偏差</h3>
+            <h3>{selectedDraft.title}套色偏差与停版余量</h3>
           </div>
-          <span>{selectedBlocks.length} 块版片</span>
+          <span>{selectedBlocks.length} 块版片 · 本批 {Number(qty) || 0} 印累加到各版</span>
         </div>
         <div class="deviation-grid">
           {#each selectedBlocks as block}
-            <label>
-              <span><b>{block.colorNo}</b>{block.blockName}</span>
+            {@const remaining = remainingPrints(block)}
+            {@const over = wouldExceedQuota(block, Number(qty))}
+            <label class:quota-over={over} data-testid={`quota-row-${block.id}`}>
+              <span><b>{block.colorNo}</b>{block.blockName}<em>{block.woodType} · 额度 {printQuota(block.woodType)}</em></span>
               <input
                 data-testid={`field-deviation-${block.id}`}
                 value={deviations[block.id] ?? ''}
                 oninput={(event) => (deviations[block.id] = (event.currentTarget as HTMLInputElement).value)}
                 placeholder="如：右下角偏红线半根"
               />
+              <small class="quota-line" class:warning={over}>
+                已印 {block.printCount} · 剩余 {remaining}
+                {#if block.state === '待修版'}· 已到线，待修版{/if}
+              </small>
             </label>
           {/each}
         </div>
